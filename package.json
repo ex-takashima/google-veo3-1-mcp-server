@@ -1,0 +1,41 @@
+{
+  "name": "google-veo3-1-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for Google Veo 3.1 Video Generation API",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "veo3-mcp-server": "dist/index.js",
+    "veo3-batch": "dist/cli/batch.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js",
+    "batch": "node dist/cli/batch.js",
+    "clean": "rimraf dist",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "google",
+    "veo",
+    "video-generation",
+    "ai",
+    "gemini"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

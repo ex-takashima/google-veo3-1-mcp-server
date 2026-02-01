@@ -1,0 +1,44 @@
+{
+  "jobs": [
+    {
+      "prompt": "A golden retriever running through autumn leaves in slow motion, cinematic lighting, shallow depth of field",
+      "duration_seconds": 8,
+      "resolution": "1080p",
+      "generate_audio": true
+    },
+    {
+      "prompt": "A timelapse of a flower blooming in soft natural light, macro photography",
+      "duration_seconds": 6,
+      "resolution": "720p",
+      "generate_audio": false
+    },
+    {
+      "prompt": "A chef in a busy kitchen, the sound of sizzling pans and chopping vegetables",
+      "duration_seconds": 8,
+      "resolution": "1080p",
+      "generate_audio": true,
+      "model": "veo-3.1-fast-generate-preview"
+    },
+    {
+      "type": "interpolate",
+      "first_frame": "./images/scene_start.jpg",
+      "last_frame": "./images/scene_end.jpg",
+      "prompt": "Smooth camera movement transitioning between scenes",
+      "duration_seconds": 4,
+      "generate_audio": false
+    }
+  ],
+  "output_dir": "./output",
+  "max_concurrent": 2,
+  "default_model": "veo-3.1-generate-preview",
+  "default_resolution": "720p",
+  "default_aspect_ratio": "16:9",
+  "default_generate_audio": true,
+  "poll_interval": 15000,
+  "timeout": 1800000,
+  "retry_policy": {
+    "max_retries": 2,
+    "retry_delay_ms": 5000,
+    "retry_on_errors": ["rate_limit", "timeout", "429", "503", "RESOURCE_EXHAUSTED"]
+  }
+}
