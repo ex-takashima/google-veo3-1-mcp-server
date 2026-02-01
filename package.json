@@ -4,6 +4,13 @@
   "description": "MCP Server for Google Veo 3.1 Video Generation API",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "docs",
+    "examples/batch-config.json"
+  ],
   "bin": {
     "veo3-mcp-server": "dist/index.js",
     "veo3-batch": "dist/cli/batch.js"
