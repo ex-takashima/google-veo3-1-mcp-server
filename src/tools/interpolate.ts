@@ -24,7 +24,7 @@ import {
   pollVideoResult,
   downloadAndSaveVideo,
   extractVideoFromResponse,
-  readImageAsBase64
+  readImageWithMimeType
 } from '../utils/video.js';
 import { generateDefaultOutputPath, getDisplayPath } from '../utils/path.js';
 import { debugLog, errorLog } from '../utils/debug.js';
@@ -76,16 +76,22 @@ export async function interpolateFrames(params: InterpolateFramesParams): Promis
     if (params.first_frame.startsWith('gs://')) {
       instance.image = { gcsUri: params.first_frame };
     } else {
-      const base64Data = await readImageAsBase64(params.first_frame);
-      instance.image = { bytesBase64Encoded: base64Data };
+      const imageData = await readImageWithMimeType(params.first_frame);
+      instance.image = {
+        bytesBase64Encoded: imageData.base64,
+        mimeType: imageData.mimeType
+      };
     }
 
     // Handle last frame
     if (params.last_frame.startsWith('gs://')) {
       instance.lastFrame = { gcsUri: params.last_frame };
     } else {
-      const base64Data = await readImageAsBase64(params.last_frame);
-      instance.lastFrame = { bytesBase64Encoded: base64Data };
+      const imageData = await readImageWithMimeType(params.last_frame);
+      instance.lastFrame = {
+        bytesBase64Encoded: imageData.base64,
+        mimeType: imageData.mimeType
+      };
     }
 
     // Build request parameters

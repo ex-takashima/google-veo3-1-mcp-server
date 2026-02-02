@@ -29,7 +29,7 @@ import {
   pollVideoResult,
   downloadAndSaveVideo,
   extractVideoFromResponse,
-  readImageAsBase64
+  readImageWithMimeType
 } from '../utils/video.js';
 import { generateDefaultOutputPath, getDisplayPath } from '../utils/path.js';
 import { debugLog, errorLog } from '../utils/debug.js';
@@ -89,8 +89,11 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
       if (params.image.startsWith('gs://')) {
         instance.image = { gcsUri: params.image };
       } else {
-        const base64Data = await readImageAsBase64(params.image);
-        instance.image = { bytesBase64Encoded: base64Data };
+        const imageData = await readImageWithMimeType(params.image);
+        instance.image = {
+          bytesBase64Encoded: imageData.base64,
+          mimeType: imageData.mimeType
+        };
       }
     }
 
@@ -103,8 +106,11 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
         if (refImage.image.startsWith('gs://')) {
           imageInput = { gcsUri: refImage.image };
         } else {
-          const base64Data = await readImageAsBase64(refImage.image);
-          imageInput = { bytesBase64Encoded: base64Data };
+          const imageData = await readImageWithMimeType(refImage.image);
+          imageInput = {
+            bytesBase64Encoded: imageData.base64,
+            mimeType: imageData.mimeType
+          };
         }
 
         instance.referenceImages.push({

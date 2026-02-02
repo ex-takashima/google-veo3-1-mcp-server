@@ -234,15 +234,56 @@ export function extractVideoFromResponse(
 }
 
 /**
- * Read image file and convert to base64
+ * Get MIME type from file extension
  */
-export async function readImageAsBase64(imagePath: string): Promise<string> {
+function getMimeTypeFromExtension(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.bmp': 'image/bmp'
+  };
+  return mimeTypes[ext] || 'image/jpeg';
+}
+
+/**
+ * Get MIME type from buffer magic bytes
+ */
+function getMimeTypeFromBuffer(buffer: Buffer): string {
+  // Check magic bytes
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+    return 'image/jpeg';
+  }
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+    return 'image/png';
+  }
+  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
+    return 'image/webp';
+  }
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
+    return 'image/gif';
+  }
+  return 'image/jpeg'; // Default
+}
+
+export interface ImageData {
+  base64: string;
+  mimeType: string;
+}
+
+/**
+ * Read image file and convert to base64 with MIME type
+ */
+export async function readImageWithMimeType(imagePath: string): Promise<ImageData> {
   // Check if it's already base64 or a URL
   if (imagePath.startsWith('data:')) {
-    // Extract base64 from data URL
-    const match = imagePath.match(/^data:[^;]+;base64,(.+)$/);
+    // Extract base64 and mimeType from data URL
+    const match = imagePath.match(/^data:([^;]+);base64,(.+)$/);
     if (match) {
-      return match[1];
+      return { base64: match[2], mimeType: match[1] };
     }
     throw new Error('Invalid data URL format');
   }
@@ -253,8 +294,13 @@ export async function readImageAsBase64(imagePath: string): Promise<string> {
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.status}`);
     }
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
     const buffer = await response.arrayBuffer();
-    return Buffer.from(buffer).toString('base64');
+    const nodeBuffer = Buffer.from(buffer);
+    return {
+      base64: nodeBuffer.toString('base64'),
+      mimeType: contentType.split(';')[0] // Remove charset if present
+    };
   }
 
   if (imagePath.startsWith('gs://')) {
@@ -270,13 +316,26 @@ export async function readImageAsBase64(imagePath: string): Promise<string> {
   if (!fs.existsSync(absolutePath)) {
     // Check if it's already base64 encoded
     if (isBase64(imagePath)) {
-      return imagePath;
+      return { base64: imagePath, mimeType: 'image/jpeg' };
     }
     throw new Error(`Image file not found: ${absolutePath}`);
   }
 
   const buffer = fs.readFileSync(absolutePath);
-  return buffer.toString('base64');
+  const mimeType = getMimeTypeFromBuffer(buffer) || getMimeTypeFromExtension(absolutePath);
+  return {
+    base64: buffer.toString('base64'),
+    mimeType
+  };
+}
+
+/**
+ * Read image file and convert to base64
+ * @deprecated Use readImageWithMimeType instead
+ */
+export async function readImageAsBase64(imagePath: string): Promise<string> {
+  const result = await readImageWithMimeType(imagePath);
+  return result.base64;
 }
 
 /**

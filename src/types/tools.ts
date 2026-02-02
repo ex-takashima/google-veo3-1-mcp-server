@@ -133,6 +133,7 @@ export interface GetVideoStatusParams {
 
 export interface VeoImageInput {
   bytesBase64Encoded?: string;
+  mimeType?: string;
   gcsUri?: string;
 }
 
