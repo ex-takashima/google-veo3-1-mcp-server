@@ -1,0 +1,15 @@
+{
+  "jobs": [
+    {
+      "type": "generate",
+      "image": "./output/2026-02-02T03-54-15.jpg",
+      "prompt": "An anime girl standing on a cliff overlooking a beautiful canyon with a winding river at sunset. She gently turns her head to look at the scenery, her hair blowing softly in the wind. The clouds move slowly across the orange and purple sky. Cinematic anime style.",
+      "duration_seconds": 6,
+      "resolution": "720p",
+      "aspect_ratio": "16:9",
+      "generate_audio": true
+    }
+  ],
+  "output_dir": "./output",
+  "default_model": "veo-3.1-generate-preview"
+}
