@@ -81,12 +81,13 @@ export async function extendVideo(params: ExtendVideoParams): Promise<VideoGener
     debugLog('API Request', request);
 
     // Make API call
-    const url = `${GEMINI_API_BASE_URL}/models/${model}:predictLongRunning?key=${apiKey}`;
+    const url = `${GEMINI_API_BASE_URL}/models/${model}:predictLongRunning`;
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
       },
       body: JSON.stringify(request)
     });
@@ -137,8 +138,20 @@ export async function extendVideo(params: ExtendVideoParams): Promise<VideoGener
     // Calculate estimated cost (7 seconds at 720p, no audio for extensions)
     const estimatedCost = calculateCost(model, EXTENSION_RESOLUTION, EXTENSION_DURATION, false);
 
+    // Async mode: return immediately; the caller polls with get_video_status
+    if (params.wait === false) {
+      return {
+        success: true,
+        done: false,
+        operation_name: operationName,
+        duration_seconds: EXTENSION_DURATION,
+        estimated_cost: estimatedCost
+      };
+    }
+
     // Poll for completion
-    const pollInterval = parseInt(process.env.VIDEO_POLL_INTERVAL || '') || DEFAULT_POLL_INTERVAL;
+    const pollInterval = params.poll_interval
+      || parseInt(process.env.VIDEO_POLL_INTERVAL || '') || DEFAULT_POLL_INTERVAL;
     const maxAttempts = parseInt(process.env.VIDEO_MAX_POLL_ATTEMPTS || '') || DEFAULT_MAX_POLL_ATTEMPTS;
 
     const finalResponse = await pollVideoResult(operationName, apiKey, pollInterval, maxAttempts);
@@ -185,6 +198,7 @@ export async function extendVideo(params: ExtendVideoParams): Promise<VideoGener
 
     return {
       success: true,
+      done: true,
       operation_name: operationName,
       video_url: videoUrl,
       video_path: videoPath ? getDisplayPath(videoPath) : undefined,

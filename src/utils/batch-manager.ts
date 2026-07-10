@@ -188,11 +188,20 @@ export class BatchManager {
       }
     });
 
-    // Wait for all jobs with timeout
-    await Promise.race([
-      Promise.all(promises),
-      this.timeoutPromise()
+    // Wait for all jobs with timeout. On timeout we still return the
+    // partial results collected so far instead of discarding them.
+    let timeoutId: NodeJS.Timeout | undefined;
+    const timedOut = await Promise.race([
+      Promise.all(promises).then(() => false),
+      new Promise<boolean>((resolve) => {
+        timeoutId = setTimeout(() => resolve(true), this.options.timeout);
+      })
     ]);
+    if (timeoutId) clearTimeout(timeoutId);
+
+    if (timedOut) {
+      errorLog(`Batch execution timed out after ${this.options.timeout}ms; returning partial results`);
+    }
 
     const completedAt = new Date();
 
@@ -224,8 +233,24 @@ export class BatchManager {
   private async executeJobWithRetry(job: BatchJob, index: number): Promise<JobResult> {
     const jobWithDefaults = applyJobDefaults(job, this.config);
     const jobType = job.type || 'generate';
-    const outputPath = resolveOutputPath(job, index, this.options.outputDir, this.configDir);
     const startedAt = new Date();
+
+    let outputPath: string;
+    try {
+      outputPath = resolveOutputPath(
+        job, index, this.options.outputDir, this.configDir, this.options.allowAnyPath
+      );
+    } catch (error) {
+      return {
+        index,
+        job: jobWithDefaults,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        started_at: startedAt,
+        completed_at: new Date(),
+        retries: 0
+      };
+    }
 
     let lastError: string | undefined;
     let retries = 0;
@@ -306,7 +331,8 @@ export class BatchManager {
         return extendVideo({
           video: extJob.video,
           prompt: extJob.prompt,
-          output_path: outputPath
+          output_path: outputPath,
+          poll_interval: this.options.pollInterval
         });
       }
 
@@ -318,7 +344,8 @@ export class BatchManager {
           prompt: intJob.prompt,
           duration_seconds: intJob.duration_seconds,
           generate_audio: this.options.noAudio ? false : intJob.generate_audio,
-          output_path: outputPath
+          output_path: outputPath,
+          poll_interval: this.options.pollInterval
         });
       }
 
@@ -334,7 +361,8 @@ export class BatchManager {
           negative_prompt: genJob.negative_prompt,
           image: genJob.image,
           reference_images: genJob.reference_images,
-          output_path: outputPath
+          output_path: outputPath,
+          poll_interval: this.options.pollInterval
         });
       }
     }
@@ -356,17 +384,6 @@ export class BatchManager {
     }
 
     return false;
-  }
-
-  /**
-   * Create timeout promise
-   */
-  private timeoutPromise(): Promise<never> {
-    return new Promise((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`Batch execution timed out after ${this.options.timeout}ms`));
-      }, this.options.timeout);
-    });
   }
 
   /**

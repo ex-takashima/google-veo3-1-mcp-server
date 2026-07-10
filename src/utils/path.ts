@@ -98,7 +98,10 @@ export function ensureVideoExtension(filePath: string): string {
 export function isPathWithinBase(targetPath: string, baseDir: string): boolean {
   const resolvedTarget = path.resolve(targetPath);
   const resolvedBase = path.resolve(baseDir);
-  return resolvedTarget.startsWith(resolvedBase);
+  // path.relative avoids false positives from prefix matching
+  // (e.g. /output-evil vs /output)
+  const relative = path.relative(resolvedBase, resolvedTarget);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 /**

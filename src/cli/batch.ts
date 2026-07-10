@@ -48,6 +48,14 @@ function parseArgs(args: string[]): CliArgs {
     help: false
   };
 
+  const requireValue = (index: number, flag: string): string => {
+    const value = args[index];
+    if (value === undefined) {
+      throw new Error(`Missing value for ${flag}`);
+    }
+    return value;
+  };
+
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
@@ -60,22 +68,23 @@ function parseArgs(args: string[]): CliArgs {
 
       case '-o':
       case '--output-dir':
-        result.outputDir = args[++i];
+        result.outputDir = requireValue(++i, arg);
         break;
 
       case '-f':
-      case '--format':
-        const format = args[++i];
+      case '--format': {
+        const format = requireValue(++i, arg);
         if (format === 'text' || format === 'json') {
           result.format = format;
         } else {
           throw new Error(`Invalid format: ${format}. Must be "text" or "json"`);
         }
         break;
+      }
 
       case '-c':
       case '--max-concurrent':
-        result.maxConcurrent = parseInt(args[++i], 10);
+        result.maxConcurrent = parseInt(requireValue(++i, arg), 10);
         if (isNaN(result.maxConcurrent) || result.maxConcurrent < 1 || result.maxConcurrent > 5) {
           throw new Error('max-concurrent must be between 1 and 5');
         }
@@ -83,7 +92,7 @@ function parseArgs(args: string[]): CliArgs {
 
       case '-p':
       case '--poll-interval':
-        result.pollInterval = parseInt(args[++i], 10);
+        result.pollInterval = parseInt(requireValue(++i, arg), 10);
         if (isNaN(result.pollInterval)) {
           throw new Error('poll-interval must be a number');
         }
@@ -91,7 +100,7 @@ function parseArgs(args: string[]): CliArgs {
 
       case '-t':
       case '--timeout':
-        result.timeout = parseInt(args[++i], 10);
+        result.timeout = parseInt(requireValue(++i, arg), 10);
         if (isNaN(result.timeout)) {
           throw new Error('timeout must be a number');
         }

@@ -53,7 +53,15 @@ export async function interpolateFrames(params: InterpolateFramesParams): Promis
   }
 
   const model: Model = DEFAULT_MODEL;
-  const durationSeconds = normalizeDuration(params.duration_seconds);
+  let durationSeconds: number;
+  try {
+    durationSeconds = normalizeDuration(params.duration_seconds);
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
   const generateAudio = params.generate_audio ?? true;
   const resolution: Resolution = DEFAULT_RESOLUTION;
 
@@ -108,12 +116,13 @@ export async function interpolateFrames(params: InterpolateFramesParams): Promis
     debugLog('API Request', request);
 
     // Make API call
-    const url = `${GEMINI_API_BASE_URL}/models/${model}:predictLongRunning?key=${apiKey}`;
+    const url = `${GEMINI_API_BASE_URL}/models/${model}:predictLongRunning`;
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
       },
       body: JSON.stringify(request)
     });
@@ -164,8 +173,20 @@ export async function interpolateFrames(params: InterpolateFramesParams): Promis
     // Calculate estimated cost
     const estimatedCost = calculateCost(model, resolution, durationSeconds, generateAudio);
 
+    // Async mode: return immediately; the caller polls with get_video_status
+    if (params.wait === false) {
+      return {
+        success: true,
+        done: false,
+        operation_name: operationName,
+        duration_seconds: durationSeconds,
+        estimated_cost: estimatedCost
+      };
+    }
+
     // Poll for completion
-    const pollInterval = parseInt(process.env.VIDEO_POLL_INTERVAL || '') || DEFAULT_POLL_INTERVAL;
+    const pollInterval = params.poll_interval
+      || parseInt(process.env.VIDEO_POLL_INTERVAL || '') || DEFAULT_POLL_INTERVAL;
     const maxAttempts = parseInt(process.env.VIDEO_MAX_POLL_ATTEMPTS || '') || DEFAULT_MAX_POLL_ATTEMPTS;
 
     const finalResponse = await pollVideoResult(operationName, apiKey, pollInterval, maxAttempts);
@@ -212,6 +233,7 @@ export async function interpolateFrames(params: InterpolateFramesParams): Promis
 
     return {
       success: true,
+      done: true,
       operation_name: operationName,
       video_url: videoUrl,
       video_path: videoPath ? getDisplayPath(videoPath) : undefined,

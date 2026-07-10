@@ -95,7 +95,9 @@ Generate video from text prompt or image.
 - `negative_prompt`: Elements to avoid
 - `image`: Image for Image-to-Video mode
 - `reference_images`: Array of reference images for consistency
+- `sample_count`: Number of videos to generate per request (default: 1)
 - `output_path`: Path to save the video
+- `wait`: Set to `false` to return the `operation_name` immediately instead of blocking until the video is ready (default: `true`). Also supported by `extend_video` and `interpolate_frames`.
 
 #### extend_video
 Extend an existing video by 7 seconds.
@@ -127,13 +129,25 @@ Generate video transitioning between two keyframes.
 ```
 
 #### get_video_status
-Check the status of a video generation operation.
+Check the status of a video generation operation. When used with `wait: false` generation, poll this tool until `done` is `true`, then download the result.
 
 ```json
 {
-  "operation_name": "models/veo-3.1-generate-preview/operations/abc123"
+  "operation_name": "models/veo-3.1-generate-preview/operations/abc123",
+  "download": true,
+  "output_path": "./output/video.mp4"
 }
 ```
+
+**Parameters:**
+- `operation_name`: Operation name returned by a generation tool (required)
+- `download`: When the operation is done, download the video(s) to `output_path` or `OUTPUT_DIR` (default: `false`)
+- `output_path`: Where to save the downloaded video (implies `download`)
+
+**Async workflow example:**
+1. `generate_video` with `"wait": false` → returns `operation_name` in seconds
+2. `get_video_status` with the `operation_name` → `done: false` while processing
+3. Once `done: true`, call again with `"download": true` (or include `output_path`) to save the video
 
 ## Batch CLI Usage
 

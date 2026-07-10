@@ -22,7 +22,13 @@ import { config } from 'dotenv';
 import { generateVideo } from './tools/generate.js';
 import { extendVideo } from './tools/extend.js';
 import { interpolateFrames } from './tools/interpolate.js';
-import { getOperationStatus, getApiKey } from './utils/video.js';
+import {
+  getOperationStatus,
+  getApiKey,
+  extractVideosFromResponse,
+  downloadAndSaveVideo
+} from './utils/video.js';
+import { generateDefaultOutputPath, getDisplayPath } from './utils/path.js';
 import { debugLog, errorLog, infoLog } from './utils/debug.js';
 import {
   MODELS,
@@ -41,12 +47,12 @@ import {
 // Load environment variables
 config();
 
-// Verify API key is available
+// Warn early if the API key is missing, but keep the server running so
+// MCP clients get a per-call error instead of a silent startup failure
 try {
   getApiKey();
-} catch (error) {
-  errorLog('GOOGLE_API_KEY not found in environment variables');
-  process.exit(1);
+} catch {
+  errorLog('GOOGLE_API_KEY not found in environment variables; tool calls will fail until it is set');
 }
 
 // =============================================================================
@@ -129,6 +135,10 @@ Pricing (per second):
           },
           description: 'Reference images for consistency. Max 3 asset images or 1 style image'
         },
+        sample_count: {
+          type: 'number',
+          description: 'Number of videos to generate per request (1-4). Default: 1'
+        },
         person_generation: {
           type: 'string',
           enum: PERSON_GENERATION_OPTIONS as unknown as string[],
@@ -141,6 +151,10 @@ Pricing (per second):
         output_path: {
           type: 'string',
           description: 'Path to save the generated video. If not provided, uses OUTPUT_DIR env var'
+        },
+        wait: {
+          type: 'boolean',
+          description: 'If false, return the operation_name immediately without waiting for completion. Poll with get_video_status and download with its download option. Default: true'
         }
       },
       required: []
@@ -171,6 +185,10 @@ Estimated cost: ~$1.40 per extension`,
         output_path: {
           type: 'string',
           description: 'Path to save the extended video'
+        },
+        wait: {
+          type: 'boolean',
+          description: 'If false, return the operation_name immediately without waiting for completion. Default: true'
         }
       },
       required: ['video']
@@ -210,6 +228,10 @@ Pricing: Same as generate_video based on duration and audio settings`,
         output_path: {
           type: 'string',
           description: 'Path to save the generated video'
+        },
+        wait: {
+          type: 'boolean',
+          description: 'If false, return the operation_name immediately without waiting for completion. Default: true'
         }
       },
       required: ['first_frame', 'last_frame']
@@ -219,13 +241,22 @@ Pricing: Same as generate_video based on duration and audio settings`,
     name: 'get_video_status',
     description: `Check the status of a video generation operation.
 
-Returns the current status (done/pending) and video URL if completed.`,
+Returns the current status (done/pending) and video URL if completed.
+Can also download the completed video (use after generate_video with wait: false).`,
     inputSchema: {
       type: 'object',
       properties: {
         operation_name: {
           type: 'string',
           description: 'The operation name returned from generate_video, extend_video, or interpolate_frames'
+        },
+        download: {
+          type: 'boolean',
+          description: 'If true and the operation is done, download the video to output_path (or OUTPUT_DIR). Default: false'
+        },
+        output_path: {
+          type: 'string',
+          description: 'Path to save the video when downloading. Implies download. If not provided, uses OUTPUT_DIR env var'
         }
       },
       required: ['operation_name']
@@ -240,7 +271,7 @@ Returns the current status (done/pending) and video URL if completed.`,
 const server = new Server(
   {
     name: 'google-veo3-1-mcp-server',
-    version: '1.0.0'
+    version: '1.1.0'
   },
   {
     capabilities: {
@@ -336,8 +367,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             done: status.done ?? false
           };
 
-          if (status.done && status.response?.generatedVideos?.length) {
-            result.video_url = status.response.generatedVideos[0].video.uri;
+          if (status.done) {
+            // Handles both Gemini (generateVideoResponse.generatedSamples)
+            // and Vertex AI (generatedVideos) response formats
+            const videos = extractVideosFromResponse(status);
+            const videoUrls = videos.map(v => v.url).filter((u): u is string => !!u);
+            result.video_url = videoUrls[0];
+            if (videoUrls.length > 1) {
+              result.video_urls = videoUrls;
+            }
+
+            // Download on request (async-mode flow: generate with wait: false,
+            // then poll here and download once done)
+            if (videos.length > 0 && (params.download || params.output_path)) {
+              const outputPath = params.output_path || generateDefaultOutputPath(
+                process.env.OUTPUT_DIR || './output',
+                'veo3'
+              );
+
+              const savedPaths: string[] = [];
+              for (const video of videos) {
+                try {
+                  // saveVideo uniquifies the filename, so samples share the base path
+                  const savedPath = await downloadAndSaveVideo(video.url, video.base64, outputPath, apiKey);
+                  savedPaths.push(savedPath);
+                } catch (downloadError) {
+                  errorLog('Failed to save video', downloadError);
+                  // Report status even if the download fails
+                }
+              }
+
+              const displayPaths = savedPaths.map(p => getDisplayPath(p));
+              result.video_path = displayPaths[0];
+              if (displayPaths.length > 1) {
+                result.video_paths = displayPaths;
+              }
+            }
           }
 
           if (status.error) {

@@ -26,7 +26,8 @@ import {
   isValidDuration,
   isValidReferenceType
 } from '../types/tools.js';
-import { debugLog, errorLog } from './debug.js';
+import { isPathWithinBase } from './path.js';
+import { debugLog } from './debug.js';
 
 /**
  * Load batch configuration from a JSON file
@@ -275,13 +276,22 @@ export function resolveOutputPath(
   job: BatchJob,
   index: number,
   outputDir: string,
-  configDir: string
+  configDir: string,
+  allowAnyPath: boolean = false
 ): string {
   if (job.output_path) {
-    if (path.isAbsolute(job.output_path)) {
-      return job.output_path;
+    const resolved = path.isAbsolute(job.output_path)
+      ? job.output_path
+      : path.resolve(configDir, job.output_path);
+
+    if (!allowAnyPath && !isPathWithinBase(resolved, outputDir)) {
+      throw new Error(
+        `output_path "${job.output_path}" resolves outside the output directory "${outputDir}". ` +
+        'Use --allow-any-path to permit this.'
+      );
     }
-    return path.resolve(configDir, job.output_path);
+
+    return resolved;
   }
 
   // Generate default output path

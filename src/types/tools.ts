@@ -106,12 +106,16 @@ export interface GenerateVideoParams {
   resize_mode?: ResizeMode | string;
   storage_uri?: string;
   output_path?: string;
+  poll_interval?: number; // ms between status polls
+  wait?: boolean; // false: return operation_name immediately without polling
 }
 
 export interface ExtendVideoParams {
   video: string; // GCS URI or base64
   prompt?: string;
   output_path?: string;
+  poll_interval?: number;
+  wait?: boolean;
 }
 
 export interface InterpolateFramesParams {
@@ -121,10 +125,16 @@ export interface InterpolateFramesParams {
   duration_seconds?: Duration | number | string;
   generate_audio?: boolean;
   output_path?: string;
+  poll_interval?: number;
+  wait?: boolean;
 }
 
 export interface GetVideoStatusParams {
   operation_name: string;
+  // When the operation is done, download the video(s) to output_path
+  // (or OUTPUT_DIR). Setting output_path implies download.
+  download?: boolean;
+  output_path?: string;
 }
 
 // =============================================================================
@@ -198,8 +208,14 @@ export interface VeoOperationResponse {
 export interface VideoGenerationResult {
   success: boolean;
   operation_name?: string;
+  // false when the tool returned without waiting for completion (wait: false);
+  // poll with get_video_status
+  done?: boolean;
   video_url?: string;
   video_path?: string;
+  // Populated when sample_count > 1 (first entry duplicated in video_url/video_path)
+  video_urls?: string[];
+  video_paths?: string[];
   duration_seconds?: number;
   estimated_cost?: number;
   error?: string;
@@ -211,6 +227,9 @@ export interface VideoStatusResult {
   operation_name: string;
   done: boolean;
   video_url?: string;
+  video_urls?: string[];
+  video_path?: string;
+  video_paths?: string[];
   error?: string;
   failure_reason?: string;
 }
@@ -279,30 +298,31 @@ export function calculateCost(
 // Parameter Normalization
 // =============================================================================
 
+// Invalid values throw instead of silently falling back to a default:
+// video generation is billed, so a typo must not produce a paid result
+// with unintended settings.
+
 export function normalizeModel(model?: string): Model {
   if (!model) return DEFAULT_MODEL;
   if (isValidModel(model)) return model;
-  return DEFAULT_MODEL;
+  throw new Error(`Invalid model: ${model}. Valid models: ${MODELS.join(', ')}`);
 }
 
 export function normalizeResolution(resolution?: string): Resolution {
   if (!resolution) return DEFAULT_RESOLUTION;
   if (isValidResolution(resolution)) return resolution;
-  return DEFAULT_RESOLUTION;
+  throw new Error(`Invalid resolution: ${resolution}. Valid resolutions: ${RESOLUTIONS.join(', ')}`);
 }
 
 export function normalizeAspectRatio(ratio?: string): AspectRatio {
   if (!ratio) return DEFAULT_ASPECT_RATIO;
   if (isValidAspectRatio(ratio)) return ratio;
-  return DEFAULT_ASPECT_RATIO;
+  throw new Error(`Invalid aspect_ratio: ${ratio}. Valid aspect ratios: ${ASPECT_RATIOS.join(', ')}`);
 }
 
 export function normalizeDuration(duration?: number | string): Duration {
   if (duration === undefined || duration === null) return DEFAULT_DURATION;
   const numDuration = typeof duration === 'string' ? parseInt(duration, 10) : duration;
-  if (isNaN(numDuration)) return DEFAULT_DURATION;
   if (isValidDuration(numDuration)) return numDuration;
-  // Find closest valid duration
-  const sorted = [...DURATIONS].sort((a, b) => Math.abs(a - numDuration) - Math.abs(b - numDuration));
-  return sorted[0];
+  throw new Error(`Invalid duration_seconds: ${duration}. Valid durations: ${DURATIONS.join(', ')}`);
 }

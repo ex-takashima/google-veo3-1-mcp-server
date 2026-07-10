@@ -15,6 +15,17 @@ import { debugLog, errorLog } from './debug.js';
 import { normalizeAndValidatePath, generateUniqueFilePath, ensureVideoExtension } from './path.js';
 
 /**
+ * Error carrying the HTTP status code, so callers can distinguish
+ * transient (5xx) failures from permanent ones.
+ */
+export class ApiStatusError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = 'ApiStatusError';
+  }
+}
+
+/**
  * Get API key from environment
  */
 export function getApiKey(): string {
@@ -32,33 +43,27 @@ export async function getOperationStatus(
   operationName: string,
   apiKey: string
 ): Promise<VeoOperationResponse> {
-  // For Gemini API, the operation name format is different
-  // We need to construct the full URL based on the operation name
-  let url: string;
+  // Operation name may be a full URL or a path relative to the Gemini API
+  const url = operationName.startsWith('http')
+    ? operationName
+    : `${GEMINI_API_BASE_URL}/${operationName}`;
 
-  if (operationName.startsWith('http')) {
-    // Full URL provided
-    url = `${operationName}?key=${apiKey}`;
-  } else if (operationName.startsWith('models/')) {
-    // Relative path from Gemini API
-    url = `${GEMINI_API_BASE_URL}/${operationName}?key=${apiKey}`;
-  } else {
-    // Assume it's just the operation ID or full path
-    url = `${GEMINI_API_BASE_URL}/${operationName}?key=${apiKey}`;
-  }
-
-  debugLog('Checking operation status', { url: url.replace(apiKey, '***') });
+  debugLog('Checking operation status', { url });
 
   const response = await fetch(url, {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey
     }
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Failed to get operation status: ${response.status} ${response.statusText} - ${errorText}`);
+    throw new ApiStatusError(
+      response.status,
+      `Failed to get operation status: ${response.status} ${response.statusText} - ${errorText}`
+    );
   }
 
   const result = await response.json() as VeoOperationResponse;
@@ -104,8 +109,8 @@ export async function pollVideoResult(
       await sleep(pollInterval);
 
     } catch (error) {
-      // Check for transient errors (5xx)
-      if (error instanceof Error && error.message.includes('5')) {
+      // Retry only transient server errors (5xx)
+      if (error instanceof ApiStatusError && error.status >= 500) {
         debugLog(`Transient error, retrying: ${error.message}`);
         await sleep(pollInterval);
         continue;
@@ -121,17 +126,16 @@ export async function pollVideoResult(
  * Download video from URL
  */
 export async function downloadVideo(url: string, apiKey?: string): Promise<Buffer> {
-  let downloadUrl = url;
+  const headers: Record<string, string> = {};
 
-  // Add API key for Google API URLs
+  // Authenticate via header (not query string) so the key never appears in URLs/logs
   if (apiKey && url.includes('generativelanguage.googleapis.com')) {
-    const separator = url.includes('?') ? '&' : '?';
-    downloadUrl = `${url}${separator}key=${apiKey}`;
+    headers['x-goog-api-key'] = apiKey;
   }
 
-  debugLog('Downloading video', { url: downloadUrl.replace(apiKey || '', '***') });
+  debugLog('Downloading video', { url });
 
-  const response = await fetch(downloadUrl);
+  const response = await fetch(url, { headers });
 
   if (!response.ok) {
     throw new Error(`Failed to download video: ${response.status} ${response.statusText}`);
@@ -194,12 +198,15 @@ export async function downloadAndSaveVideo(
   throw new Error('No video data available (neither URL nor base64 provided)');
 }
 
+export interface ExtractedVideo {
+  url?: string;
+  base64?: string;
+}
+
 /**
- * Extract video from operation response
+ * Extract all generated videos from an operation response
  */
-export function extractVideoFromResponse(
-  response: VeoOperationResponse
-): { url?: string; base64?: string } | null {
+export function extractVideosFromResponse(response: VeoOperationResponse): ExtractedVideo[] {
   // Handle Gemini API response format
   // Structure: response.generateVideoResponse.generatedSamples[].video.uri
   const generateVideoResponse = (response.response as Record<string, unknown>)?.generateVideoResponse as {
@@ -212,25 +219,28 @@ export function extractVideoFromResponse(
   } | undefined;
 
   if (generateVideoResponse?.generatedSamples?.length) {
-    const video = generateVideoResponse.generatedSamples[0].video;
-    if (video) {
-      return {
-        url: video.uri,
-        base64: video.bytesBase64Encoded
-      };
-    }
+    return generateVideoResponse.generatedSamples
+      .map(sample => sample.video)
+      .filter((video): video is NonNullable<typeof video> => !!video)
+      .map(video => ({ url: video.uri, base64: video.bytesBase64Encoded }));
   }
 
   // Fallback: Check for Vertex AI format (generatedVideos)
   if (response.response?.generatedVideos?.length) {
-    const video = response.response.generatedVideos[0].video;
-    return {
+    return response.response.generatedVideos.map(({ video }) => ({
       url: video.uri,
       base64: video.bytesBase64Encoded
-    };
+    }));
   }
 
-  return null;
+  return [];
+}
+
+/**
+ * Extract the first video from an operation response
+ */
+export function extractVideoFromResponse(response: VeoOperationResponse): ExtractedVideo | null {
+  return extractVideosFromResponse(response)[0] ?? null;
 }
 
 /**
@@ -250,9 +260,9 @@ function getMimeTypeFromExtension(filePath: string): string {
 }
 
 /**
- * Get MIME type from buffer magic bytes
+ * Get MIME type from buffer magic bytes, or null if not a recognized image
  */
-function getMimeTypeFromBuffer(buffer: Buffer): string {
+function getMimeTypeFromBuffer(buffer: Buffer): string | null {
   // Check magic bytes
   if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
     return 'image/jpeg';
@@ -260,13 +270,15 @@ function getMimeTypeFromBuffer(buffer: Buffer): string {
   if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
     return 'image/png';
   }
-  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
+  // WebP: RIFF container with "WEBP" at offset 8 (bare RIFF is also WAV/AVI)
+  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+      buffer.length >= 12 && buffer.toString('ascii', 8, 12) === 'WEBP') {
     return 'image/webp';
   }
   if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
     return 'image/gif';
   }
-  return 'image/jpeg'; // Default
+  return null;
 }
 
 export interface ImageData {
@@ -314,15 +326,20 @@ export async function readImageWithMimeType(imagePath: string): Promise<ImageDat
     : path.resolve(process.cwd(), imagePath);
 
   if (!fs.existsSync(absolutePath)) {
-    // Check if it's already base64 encoded
-    if (isBase64(imagePath)) {
-      return { base64: imagePath, mimeType: 'image/jpeg' };
+    // Only treat as raw base64 if it can't be a path and decodes to a real image;
+    // otherwise a typo'd path would silently send garbage to the (billed) API
+    if (!looksLikePath(imagePath) && isBase64(imagePath)) {
+      const decoded = Buffer.from(imagePath, 'base64');
+      const mimeType = getMimeTypeFromBuffer(decoded);
+      if (mimeType) {
+        return { base64: imagePath, mimeType };
+      }
     }
     throw new Error(`Image file not found: ${absolutePath}`);
   }
 
   const buffer = fs.readFileSync(absolutePath);
-  const mimeType = getMimeTypeFromBuffer(buffer) || getMimeTypeFromExtension(absolutePath);
+  const mimeType = getMimeTypeFromBuffer(buffer) ?? getMimeTypeFromExtension(absolutePath);
   return {
     base64: buffer.toString('base64'),
     mimeType
@@ -336,6 +353,13 @@ export async function readImageWithMimeType(imagePath: string): Promise<ImageDat
 export async function readImageAsBase64(imagePath: string): Promise<string> {
   const result = await readImageWithMimeType(imagePath);
   return result.base64;
+}
+
+/**
+ * Check if a string looks like a file path rather than inline data
+ */
+function looksLikePath(str: string): boolean {
+  return str.includes('/') || str.includes('\\');
 }
 
 /**
@@ -375,9 +399,13 @@ export async function readVideoAsBase64(videoPath: string): Promise<string> {
     : path.resolve(process.cwd(), videoPath);
 
   if (!fs.existsSync(absolutePath)) {
-    // Check if it's already base64 encoded
-    if (isBase64(videoPath)) {
-      return videoPath;
+    // Only treat as raw base64 if it can't be a path and decodes to an MP4
+    // ("ftyp" box at offset 4)
+    if (!looksLikePath(videoPath) && isBase64(videoPath)) {
+      const decoded = Buffer.from(videoPath, 'base64');
+      if (decoded.length >= 8 && decoded.toString('ascii', 4, 8) === 'ftyp') {
+        return videoPath;
+      }
     }
     throw new Error(`Video file not found: ${absolutePath}`);
   }

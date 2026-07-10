@@ -28,7 +28,7 @@ import {
   getApiKey,
   pollVideoResult,
   downloadAndSaveVideo,
-  extractVideoFromResponse,
+  extractVideosFromResponse,
   readImageWithMimeType
 } from '../utils/video.js';
 import { generateDefaultOutputPath, getDisplayPath } from '../utils/path.js';
@@ -40,11 +40,23 @@ import { debugLog, errorLog } from '../utils/debug.js';
 export async function generateVideo(params: GenerateVideoParams): Promise<VideoGenerationResult> {
   const apiKey = getApiKey();
 
-  // Normalize parameters
-  const model = normalizeModel(params.model);
-  const resolution = normalizeResolution(params.resolution);
-  const aspectRatio = normalizeAspectRatio(params.aspect_ratio);
-  const durationSeconds = normalizeDuration(params.duration_seconds);
+  // Normalize parameters (invalid values are rejected rather than
+  // silently replaced, since generation is billed)
+  let model: Model;
+  let resolution: Resolution;
+  let aspectRatio: string;
+  let durationSeconds: number;
+  try {
+    model = normalizeModel(params.model);
+    resolution = normalizeResolution(params.resolution);
+    aspectRatio = normalizeAspectRatio(params.aspect_ratio);
+    durationSeconds = normalizeDuration(params.duration_seconds);
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
   const generateAudio = params.generate_audio ?? true;
   const sampleCount = typeof params.sample_count === 'string'
     ? parseInt(params.sample_count, 10)
@@ -165,12 +177,13 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
     debugLog('API Request', request);
 
     // Make API call
-    const url = `${GEMINI_API_BASE_URL}/models/${model}:predictLongRunning?key=${apiKey}`;
+    const url = `${GEMINI_API_BASE_URL}/models/${model}:predictLongRunning`;
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
       },
       body: JSON.stringify(request)
     });
@@ -215,8 +228,20 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
     // Calculate estimated cost
     const estimatedCost = calculateCost(model, resolution, durationSeconds, generateAudio);
 
+    // Async mode: return immediately; the caller polls with get_video_status
+    if (params.wait === false) {
+      return {
+        success: true,
+        done: false,
+        operation_name: operationName,
+        duration_seconds: durationSeconds,
+        estimated_cost: estimatedCost
+      };
+    }
+
     // Poll for completion
-    const pollInterval = parseInt(process.env.VIDEO_POLL_INTERVAL || '') || DEFAULT_POLL_INTERVAL;
+    const pollInterval = params.poll_interval
+      || parseInt(process.env.VIDEO_POLL_INTERVAL || '') || DEFAULT_POLL_INTERVAL;
     const maxAttempts = parseInt(process.env.VIDEO_MAX_POLL_ATTEMPTS || '') || DEFAULT_MAX_POLL_ATTEMPTS;
 
     const finalResponse = await pollVideoResult(operationName, apiKey, pollInterval, maxAttempts);
@@ -231,10 +256,10 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
       };
     }
 
-    // Extract video data
-    const videoData = extractVideoFromResponse(finalResponse);
+    // Extract video data (may be multiple when sample_count > 1)
+    const videos = extractVideosFromResponse(finalResponse);
 
-    if (!videoData) {
+    if (videos.length === 0) {
       return {
         success: false,
         operation_name: operationName,
@@ -244,8 +269,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
     }
 
     // Download and save if output path specified
-    let videoPath: string | undefined;
-    let videoUrl = videoData.url;
+    const videoPaths: string[] = [];
 
     if (params.output_path || process.env.OUTPUT_DIR) {
       const outputPath = params.output_path || generateDefaultOutputPath(
@@ -253,20 +277,30 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
         'veo3'
       );
 
-      try {
-        videoPath = await downloadAndSaveVideo(videoData.url, videoData.base64, outputPath);
-        debugLog('Video saved', { path: videoPath });
-      } catch (downloadError) {
-        errorLog('Failed to save video', downloadError);
-        // Don't fail the whole operation if download fails
+      for (const video of videos) {
+        try {
+          // saveVideo uniquifies the filename, so all samples share the same base path
+          const savedPath = await downloadAndSaveVideo(video.url, video.base64, outputPath);
+          videoPaths.push(savedPath);
+          debugLog('Video saved', { path: savedPath });
+        } catch (downloadError) {
+          errorLog('Failed to save video', downloadError);
+          // Don't fail the whole operation if download fails
+        }
       }
     }
 
+    const videoUrls = videos.map(v => v.url).filter((u): u is string => !!u);
+    const displayPaths = videoPaths.map(p => getDisplayPath(p));
+
     return {
       success: true,
+      done: true,
       operation_name: operationName,
-      video_url: videoUrl,
-      video_path: videoPath ? getDisplayPath(videoPath) : undefined,
+      video_url: videoUrls[0],
+      video_path: displayPaths[0],
+      video_urls: videoUrls.length > 1 ? videoUrls : undefined,
+      video_paths: displayPaths.length > 1 ? displayPaths : undefined,
       duration_seconds: durationSeconds,
       estimated_cost: estimatedCost
     };
