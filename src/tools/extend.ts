@@ -135,8 +135,8 @@ export async function extendVideo(params: ExtendVideoParams): Promise<VideoGener
 
     const operationName = operationResponse.name;
 
-    // Calculate estimated cost (7 seconds at 720p, no audio for extensions)
-    const estimatedCost = calculateCost(model, EXTENSION_RESOLUTION, EXTENSION_DURATION, false);
+    // Calculate estimated cost (7 seconds at 720p)
+    const estimatedCost = calculateCost(model, EXTENSION_RESOLUTION, EXTENSION_DURATION);
 
     // Async mode: return immediately; the caller polls with get_video_status
     if (params.wait === false) {

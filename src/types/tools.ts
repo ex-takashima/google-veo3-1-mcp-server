@@ -8,7 +8,8 @@
 
 export const MODELS = [
   'veo-3.1-generate-preview',
-  'veo-3.1-fast-generate-preview'
+  'veo-3.1-fast-generate-preview',
+  'veo-3.1-lite-generate-preview'
 ] as const;
 
 export type Model = typeof MODELS[number];
@@ -56,19 +57,25 @@ export interface ReferenceImage {
 }
 
 // =============================================================================
-// Pricing (USD per second)
+// Pricing (USD per second, audio always included)
+// https://ai.google.dev/gemini-api/docs/pricing#veo-3.1
 // =============================================================================
 
-export const PRICING: Record<Model, Partial<Record<Resolution, { video: number; video_audio: number }>>> = {
+export const PRICING: Record<Model, Partial<Record<Resolution, number>>> = {
   'veo-3.1-generate-preview': {
-    '720p': { video: 0.20, video_audio: 0.40 },
-    '1080p': { video: 0.20, video_audio: 0.40 },
-    '4k': { video: 0.40, video_audio: 0.60 }
+    '720p': 0.40,
+    '1080p': 0.40,
+    '4k': 0.60
   },
   'veo-3.1-fast-generate-preview': {
-    '720p': { video: 0.10, video_audio: 0.20 },
-    '1080p': { video: 0.10, video_audio: 0.20 }
-    // 4k not available for fast model
+    '720p': 0.10,
+    '1080p': 0.12,
+    '4k': 0.30
+  },
+  'veo-3.1-lite-generate-preview': {
+    '720p': 0.05,
+    '1080p': 0.08
+    // 4k not available for lite model
   }
 };
 
@@ -263,34 +270,45 @@ export function isValidPersonGeneration(value: string): value is PersonGeneratio
 }
 
 export function isValidResolutionForModel(resolution: Resolution, model: Model): boolean {
-  if (model === 'veo-3.1-fast-generate-preview' && resolution === '4k') {
-    return false; // 4k not available for fast model
+  if (model === 'veo-3.1-lite-generate-preview' && resolution === '4k') {
+    return false; // 4k not available for lite model
   }
   return true;
+}
+
+// 1080p/4K, reference images, and frame interpolation (last frame) are
+// limited to 8-second videos by the API.
+export function assertDurationForRequest(
+  duration: number,
+  resolution: Resolution,
+  options: { referenceImages?: boolean; interpolation?: boolean } = {}
+): void {
+  if (duration === 8) return;
+  const restrictions: string[] = [];
+  if (resolution !== '720p') restrictions.push(`resolution ${resolution}`);
+  if (options.referenceImages) restrictions.push('reference images');
+  if (options.interpolation) restrictions.push('frame interpolation');
+  if (restrictions.length > 0) {
+    throw new Error(
+      `duration_seconds must be 8 when using ${restrictions.join(', ')} (got ${duration})`
+    );
+  }
 }
 
 // =============================================================================
 // Cost Calculation
 // =============================================================================
 
+// Audio is always included in Veo 3.1 pricing; there is no audio-off discount.
 export function calculateCost(
   model: Model,
   resolution: Resolution,
-  durationSeconds: number,
-  generateAudio: boolean
+  durationSeconds: number
 ): number {
   const modelPricing = PRICING[model];
-  const resolutionPricing = modelPricing[resolution];
-
-  if (!resolutionPricing) {
-    // Fall back to 1080p pricing if resolution not found
-    const fallbackPricing = modelPricing['1080p'];
-    if (!fallbackPricing) return 0;
-    const pricePerSecond = generateAudio ? fallbackPricing.video_audio : fallbackPricing.video;
-    return pricePerSecond * durationSeconds;
-  }
-
-  const pricePerSecond = generateAudio ? resolutionPricing.video_audio : resolutionPricing.video;
+  // Fall back to 1080p pricing if resolution not found
+  const pricePerSecond = modelPricing[resolution] ?? modelPricing['1080p'];
+  if (!pricePerSecond) return 0;
   return pricePerSecond * durationSeconds;
 }
 

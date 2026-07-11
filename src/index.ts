@@ -72,11 +72,12 @@ Supports:
 Models:
 - veo-3.1-generate-preview: High quality (default)
 - veo-3.1-fast-generate-preview: Faster generation
+- veo-3.1-lite-generate-preview: Cheapest, 720p/1080p only
 
-Pricing (per second):
-- 720p/1080p with audio: $0.40 (standard) / $0.20 (fast)
-- 720p/1080p video only: $0.20 (standard) / $0.10 (fast)
-- 4K with audio: $0.60 (standard only)`,
+Pricing (per second, audio always included):
+- Standard: $0.40 (720p/1080p), $0.60 (4K)
+- Fast: $0.10 (720p), $0.12 (1080p), $0.30 (4K)
+- Lite: $0.05 (720p), $0.08 (1080p)`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -97,12 +98,12 @@ Pricing (per second):
         resolution: {
           type: 'string',
           enum: RESOLUTIONS as unknown as string[],
-          description: 'Video resolution. 4K only available for standard model. Default: 720p'
+          description: 'Video resolution. 4K not available for lite model. 1080p/4K require duration_seconds: 8. Default: 720p'
         },
         duration_seconds: {
           type: 'number',
           enum: DURATIONS as unknown as number[],
-          description: 'Duration of the video in seconds (4, 6, or 8). Default: 8'
+          description: 'Duration of the video in seconds (4, 6, or 8). Must be 8 when using 1080p/4K or reference images. Default: 8'
         },
         generate_audio: {
           type: 'boolean',
@@ -170,7 +171,7 @@ Requirements:
 - Input video: 1-30 seconds, 24fps, 720p or 1080p
 - Output: Always 7 seconds at 720p
 
-Estimated cost: ~$1.40 per extension`,
+Estimated cost: ~$2.80 per extension (7 seconds x $0.40/sec)`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -200,7 +201,7 @@ Estimated cost: ~$1.40 per extension`,
 
 Creates a video that starts at the first frame and ends at the last frame with AI-generated motion in between.
 
-Pricing: Same as generate_video based on duration and audio settings`,
+Pricing: Same as generate_video based on duration (audio always included)`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -219,7 +220,7 @@ Pricing: Same as generate_video based on duration and audio settings`,
         duration_seconds: {
           type: 'number',
           enum: DURATIONS as unknown as number[],
-          description: 'Duration of the video in seconds (4, 6, or 8). Default: 8'
+          description: 'Duration of the video in seconds. Frame interpolation requires 8 seconds. Default: 8'
         },
         generate_audio: {
           type: 'boolean',

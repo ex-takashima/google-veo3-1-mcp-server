@@ -141,7 +141,7 @@ export class BatchManager {
       }
     }
 
-    const cost = calculateCost(model, resolution, durationSeconds, generateAudio);
+    const cost = calculateCost(model, resolution, durationSeconds);
 
     return {
       index,

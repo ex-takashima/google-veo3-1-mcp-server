@@ -11,6 +11,7 @@ import {
   DEFAULT_MAX_POLL_ATTEMPTS,
   normalizeModel,
   normalizeDuration,
+  assertDurationForRequest,
   calculateCost,
   type InterpolateFramesParams,
   type VeoGenerateRequest,
@@ -56,6 +57,7 @@ export async function interpolateFrames(params: InterpolateFramesParams): Promis
   let durationSeconds: number;
   try {
     durationSeconds = normalizeDuration(params.duration_seconds);
+    assertDurationForRequest(durationSeconds, DEFAULT_RESOLUTION, { interpolation: true });
   } catch (error) {
     return {
       success: false,
@@ -171,7 +173,7 @@ export async function interpolateFrames(params: InterpolateFramesParams): Promis
     const operationName = operationResponse.name;
 
     // Calculate estimated cost
-    const estimatedCost = calculateCost(model, resolution, durationSeconds, generateAudio);
+    const estimatedCost = calculateCost(model, resolution, durationSeconds);
 
     // Async mode: return immediately; the caller polls with get_video_status
     if (params.wait === false) {

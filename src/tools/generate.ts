@@ -15,6 +15,7 @@ import {
   normalizeResolution,
   normalizeAspectRatio,
   normalizeDuration,
+  assertDurationForRequest,
   calculateCost,
   isValidResolutionForModel,
   type GenerateVideoParams,
@@ -51,6 +52,9 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
     resolution = normalizeResolution(params.resolution);
     aspectRatio = normalizeAspectRatio(params.aspect_ratio);
     durationSeconds = normalizeDuration(params.duration_seconds);
+    assertDurationForRequest(durationSeconds, resolution, {
+      referenceImages: !!params.reference_images?.length
+    });
   } catch (error) {
     return {
       success: false,
@@ -66,7 +70,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
   if (!isValidResolutionForModel(resolution, model)) {
     return {
       success: false,
-      error: `Resolution ${resolution} is not available for model ${model}. Fast model only supports 720p and 1080p.`
+      error: `Resolution ${resolution} is not available for model ${model}. Lite model only supports 720p and 1080p.`
     };
   }
 
@@ -226,7 +230,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<VideoG
     const operationName = operationResponse.name;
 
     // Calculate estimated cost
-    const estimatedCost = calculateCost(model, resolution, durationSeconds, generateAudio);
+    const estimatedCost = calculateCost(model, resolution, durationSeconds);
 
     // Async mode: return immediately; the caller polls with get_video_status
     if (params.wait === false) {

@@ -87,10 +87,10 @@ Generate video from text prompt or image.
 
 **Parameters:**
 - `prompt`: Text description of the video (required unless image provided)
-- `model`: `veo-3.1-generate-preview` (default) or `veo-3.1-fast-generate-preview`
+- `model`: `veo-3.1-generate-preview` (default), `veo-3.1-fast-generate-preview`, or `veo-3.1-lite-generate-preview`
 - `aspect_ratio`: `16:9` (default) or `9:16`
-- `resolution`: `720p` (default), `1080p`, or `4k` (4k only for standard model)
-- `duration_seconds`: `4`, `6`, or `8` (default: 8)
+- `resolution`: `720p` (default), `1080p`, or `4k` (4k not available for lite model)
+- `duration_seconds`: `4`, `6`, or `8` (default: 8; must be 8 when using 1080p/4K or reference images)
 - `generate_audio`: Whether to generate audio (default: true)
 - `negative_prompt`: Elements to avoid
 - `image`: Image for Image-to-Video mode
@@ -205,30 +205,33 @@ veo3-batch config.json --max-concurrent 3 --no-audio --format json
 
 ## Pricing
 
-| Feature | Resolution | With Audio | Video Only |
-|---------|------------|------------|------------|
-| Standard Model | 720p/1080p | $0.40/sec | $0.20/sec |
-| Standard Model | 4K | $0.60/sec | $0.40/sec |
-| Fast Model | 720p/1080p | $0.20/sec | $0.10/sec |
+Prices are per second of generated video. Audio is always included.
+
+| Model | 720p | 1080p | 4K |
+|-------|------|-------|-----|
+| Standard (`veo-3.1-generate-preview`) | $0.40/sec | $0.40/sec | $0.60/sec |
+| Fast (`veo-3.1-fast-generate-preview`) | $0.10/sec | $0.12/sec | $0.30/sec |
+| Lite (`veo-3.1-lite-generate-preview`) | $0.05/sec | $0.08/sec | N/A |
 
 > **Note:** Gemini API preview models always generate audio. The `generate_audio` parameter is not currently supported. Use Vertex AI for audio control.
 
 ### Cost Examples
 
-| Video Type | Resolution | Duration | Audio | Cost |
-|------------|------------|----------|-------|------|
-| Text-to-Video | 1080p | 8 sec | Yes | $3.20 |
-| Text-to-Video | 1080p | 8 sec | No | $1.60 |
-| Image-to-Video (Fast) | 720p | 4 sec | Yes | $0.80 |
-| Video Extension | 720p | 7 sec | No | $1.40 |
-| Frame Interpolation | 1080p | 8 sec | Yes | $3.20 |
+| Video Type | Model | Resolution | Duration | Cost |
+|------------|-------|------------|----------|------|
+| Text-to-Video | Standard | 1080p | 8 sec | $3.20 |
+| Text-to-Video | Fast | 1080p | 8 sec | $0.96 |
+| Image-to-Video | Fast | 720p | 4 sec | $0.40 |
+| Video Extension | Standard | 720p | 7 sec | $2.80 |
+| Frame Interpolation | Standard | 720p | 8 sec | $3.20 |
 
 ## Models
 
 | Model | Description | Resolutions | Speed |
 |-------|-------------|-------------|-------|
 | `veo-3.1-generate-preview` | High quality | 720p, 1080p, 4K | Standard |
-| `veo-3.1-fast-generate-preview` | Faster generation | 720p, 1080p | Fast |
+| `veo-3.1-fast-generate-preview` | Faster generation | 720p, 1080p, 4K | Fast |
+| `veo-3.1-lite-generate-preview` | Cheapest | 720p, 1080p | Fast |
 
 ## Reference Images
 
